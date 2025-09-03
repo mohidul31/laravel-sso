@@ -3,7 +3,9 @@
 namespace App\Http\Controllers\Auth;
 
 use App\Http\Controllers\Controller;
+use App\Models\User;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 use InvalidArgumentException;
@@ -18,6 +20,7 @@ class SSOAuthController extends Controller
     private string $callbackUrl;
     private string $authorizationUrl;
     private string $tokenUrl;
+    private string $userInfoUrl;
 
     public function __construct()
     {
@@ -25,8 +28,10 @@ class SSOAuthController extends Controller
         $this->clientSecret     = env('OAUTH_CLIENT_SECRET');
         $this->callbackUrl      = env('OAUTH_CLIENT_CALLBACK');
 
+        //SSO Server URLs
         $this->authorizationUrl = env("OAUTH_SERVER_URI") . '/oauth/authorize';
         $this->tokenUrl         = env("OAUTH_SERVER_URI") . '/oauth/token';
+        $this->userInfoUrl      = env("OAUTH_SERVER_URI") . '/api/userinfo';
     }
 
     /**
@@ -68,6 +73,38 @@ class SSOAuthController extends Controller
             'code'          => $request->code,
         ]);
 
-        return $tokenResponse->json();
+        if ($tokenResponse->failed()) {
+            return response()->json(['error' => 'Token exchange failed'], 400);
+        }
+
+        $accessToken = $tokenResponse->json()['access_token'];
+
+        // Fetch user info (email) from OAuth2 SSO server
+        $userResponse = Http::withToken($accessToken)->get($this->userInfoUrl);
+
+        if ($userResponse->failed()) {
+            return response()->json(['error' => 'Failed to fetch user info'], 400);
+        }
+
+        $userData = $userResponse->json();
+
+        // Check if user exists in local database
+        $user = User::where('email', $userData['email'])->first();
+
+        if ($user) {
+            // Log the user in
+            Auth::login($user);
+
+            return response()->json([
+                'message' => 'User authenticated successfully',
+                'user' => $user,
+            ]);
+        } else {
+            // User not registered
+            return response()->json([
+                'message' => 'User is not registered in this system',
+                'email' => $userData['email'],
+            ], 404);
+        }
     }
 }
