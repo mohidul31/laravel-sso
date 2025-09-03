@@ -44,4 +44,8 @@
             </x-primary-button>
         </div>
     </form>
+
+    <div class="flex justify-center mt-6">
+        <a href="{{ url('/redirect') }}" >Login with SSO-Server</a>
+    </div>
 </x-guest-layout>
